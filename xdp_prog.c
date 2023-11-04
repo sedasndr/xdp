@@ -1,20 +1,22 @@
-#include <linux/bpf.h> //BPF programlarını yüklemek, çalıştırmak ve yönetmek için gerekli olan temel veri yapılarını, sabitleri, makroları ve fonksiyon prototiplerini içerir.
+#include "vmlinux.h"
+// #include <linux/bpf.h> //BPF programlarını yüklemek, çalıştırmak ve yönetmek için gerekli olan temel veri yapılarını, sabitleri, makroları ve fonksiyon prototiplerini içerir.
 #include <bpf/bpf_helpers.h> //BPF, Linux çekirdeğinde çalışan ve ağ paketlerini filtreleyen, izleyen veya değiştiren küçük programlar yazmamıza olanak tanıyan bir teknolojidir. 
-#include <linux/if_ether.h> //Ethernet çerçeveleriyle çalışmak için
-#include <linux/ip.h> //ip protokolleriyle çalışmak için gerekli 
-#include <linux/tcp.h> //ağ üzerinden güvenli veri iletimi sağlayan protokol
+#include <bpf/bpf_endian.h>
+// #include <linux/if_ether.h> //Ethernet çerçeveleriyle çalışmak için
+// #include <linux/ip.h> //ip protokolleriyle çalışmak için gerekli 
+// #include <linux/tcp.h> //ağ üzerinden güvenli veri iletimi sağlayan protokol
 
 struct icmp_packet_info {
     u32 saddr;
     u32 daddr;
 };
 
-struct bpf_map_def SEC("maps") icmp_packets = {
-    .type = BPF_MAP_TYPE_PERCPU_ARRAY,
-    .key_size = sizeof(u32),
-    .value_size = sizeof(struct icmp_packet_info),
-    .max_entries = 1024
-};
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, u32);
+    __type(value, struct icmp_packet_info);
+    __uint(max_entries, 1024);
+} icmp_packets SEC(".maps");
 
 struct tcp_event {
     u32 saddr;
@@ -23,22 +25,22 @@ struct tcp_event {
     u16 dport;
 };
 
-struct bpf_map_def SEC("maps") anormal_tcp_events = {
-    .type = BPF_MAP_TYPE_PERCPU_ARRAY,
-    .key_size = sizeof(u32),
-    .value_size = sizeof(struct tcp_event),
-    .max_entries = 1024
-};
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, u32);
+    __type(value, struct tcp_event);
+    __uint(max_entries, 1024);
+} anormal_tcp_events SEC(".maps");
 
-struct bpf_map_def SEC("maps") request_count = {
-    .type = BPF_MAP_TYPE_PERCPU_HASH,  //her CPU çekirdeği için ayrı bir hash tutulacak
-    .key_size = sizeof(u32), //map size boyutu
-    .value_size = sizeof(u64), //map value boyutu
-    .max_entries = 1024
-};
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);  //her CPU çekirdeği için ayrı bir hash tutulacak
+    __type(key, u32); //map size boyutu
+    __type(value, u64); //map value boyutu
+    __uint(max_entries, 1024);
+} request_count SEC(".maps");
 
 
-SEC("xdp_prog") //xdp_filter_prog eBPF fonks. bir XDP olarak çalıştırılacak.
+SEC("xdp") //xdp_filter_prog eBPF fonks. bir XDP olarak çalıştırılacak.
 int xdp_filter_prog(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
@@ -66,16 +68,16 @@ int xdp_filter_prog(struct xdp_md *ctx) {
                 struct tcphdr *tcp = (struct tcphdr *)(ip + 1);
                 if ((void *)tcp + sizeof(*tcp) <= data_end) {
                     // HTTP portu dışında port kullanılırsa sıkıntı)
-                    if (ntohs(tcp->dest) != 80) {
+                    if (bpf_ntohs(tcp->dest) != 80) {
                        struct tcp_event event = {
                             .saddr = ip->saddr,
                             .daddr = ip->daddr,
-                            .sport = ntohs(tcp->source),
-                            .dport = ntohs(tcp->dest),
+                            .sport = bpf_ntohs(tcp->source),
+                            .dport = bpf_ntohs(tcp->dest),
                         };
                         u32 key = 1;
                         bpf_map_update_elem(&anormal_tcp_events, &key, &event, BPF_ANY);
-                        bpf_printk("80 dışında port kullanıldı %u -> %u", ntohs(tcp->source), ntohs(tcp->dest));
+                        bpf_printk("80 dışında port kullanıldı %u -> %u", bpf_ntohs(tcp->source), bpf_ntohs(tcp->dest));
                         return XDP_DROP;
                     }
                 }
@@ -95,3 +97,4 @@ int xdp_filter_prog(struct xdp_md *ctx) {
     return XDP_PASS;
 }
 
+char _license[] SEC("license") = "GPL";

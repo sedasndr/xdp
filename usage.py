@@ -1,11 +1,19 @@
 from bcc import BPF
 import time
+import ctypes
+import os
 
-b = BPF(src_file="xdp_prog.c")  # eBPF programını yükle
-b.attach_xdp("eth0", "xdp_filter_prog")  # Arayüze XDP programını bağla
+# b = BPF(src_file="xdp_prog.c")  # eBPF programını yükle
+# b.attach_xdp("eth0", "xdp_filter_prog")  # Arayüze XDP programını bağla
+bpf = BPF(src_file="xdp_prog.c")
 
-request_counts = {}  # IP adresleri için istek sayacı
-blocked_ips = {}  # Engellenen IP adresleri
+# BPF map'leri al
+icmp_packets = bpf.get_table("icmp_packets")
+anormal_tcp_events = bpf.get_table("anormal_tcp_events")
+request_count = bpf.get_table("request_count")
+
+request_counts = {}
+blocked_ips = {}
 
 attack_severity = {
     "ICMP trafik bulundu": ("Orta", 10 * 60),
@@ -13,56 +21,39 @@ attack_severity = {
     "Sık istek": ("Yüksek", 60 * 60)
 }
 
-def check_blocked_ips():  # Engellenen IP adreslerini kontrol et
+def unblock_ip():
     current_time = time.time()
-    for ip, (block_time, unblock_time) in list(blocked_ips.items()):
-        if current_time > unblock_time:
-            print(f"{ip} adresinin engellemesi kaldırıldı")
+    for ip, (_, unblock_time) in list(blocked_ips.items()):
+        if current_time >= unblock_time:
+            print(f"{ip} adresinin engellemesi kaldırıldı.")
+            os.system(f"sudo iptables -D INPUT -s {ip} -j DROP")
             del blocked_ips[ip]
 
-def check_frequent_requests():  # Sık istekleri kontrol et
-    threshold = 10  # Maksimum izin verilen istek sayısı
-    for ip, count in list(request_counts.items()):
-        if count > threshold:
-            severity, block_duration = attack_severity['Sık istek']
-            print(f"Sık istek tespit edildi: {ip} -> {count} istek/saniye, Ciddiyet: {severity}")
-            block_ip(ip, block_duration)
-            del request_counts[ip]
-
-def block_ip(ip, block_duration):  # IP adresini engelle
+def block_ip(ip, block_duration):  # IP adresini blockla
     current_time = time.time()
     unblock_time = current_time + block_duration
     blocked_ips[ip] = (current_time, unblock_time)
     print(f"{ip} adresi {block_duration} saniye süreyle engellendi")
 
-trace_pattern = "%s %s %s"  # Beklenen mesaj
-
 while True:
-    try:
-        msg = b.trace_fields(nonblocking=True)
-        if msg:
-            (_, _, _, _, ts, msg) = msg
-            ts = "%-18.9f" % ts #zaman formatı
-            msg = msg.decode('utf-8', 'replace') #UTF8e çevir
+    # ICMP paketleri
+    for key, value in icmp_packets.items():
+        print("ICMP trafik bulundu:", value.saddr, "->", value.daddr)
+        severity, block_duration = attack_severity["ICMP trafik bulundu"]
+        block_ip(value.saddr)
 
-            src_ip, dst_ip, attack_type = [x.strip() for x in msg.split(" ", 2)] #mesajdan kaynak ip hedef ip saldırı türü
-            severity, block_duration = attack_severity.get(attack_type, ("Bilinmiyor", 0))
-            
-            block_ip(src_ip, block_duration) #bas engeli
+    # Anormal port
+    for key, value in anormal_tcp_events.items():
+        print("80 dışında port kullanıldı:", value.saddr, "->", value.daddr)
+        severity, block_duration = attack_severity["80 dışında port kullanıldı"]
+        block_ip(value.saddr)
 
-            log_msg = f"{ts} {src_ip} {dst_ip} - - {attack_type} Zararlı trafik tespit edildi - Ciddiyet: {severity}"
-            print(log_msg)
+    # Sık istek
+    for key, value in request_count.items():
+        if value.value > 10:  # 10dan fazla istek gelmişse
+            print("Sık istek:", key.value)
+            severity, block_duration = attack_severity["Sık istek"]
+            block_ip(key.value)
 
-            # Sık istekleri kontrol et
-            if src_ip in request_counts:
-                request_counts[src_ip] += 1
-            else:
-                request_counts[src_ip] = 1
-            check_frequent_requests()
-
-        check_blocked_ips()
-
-    except ValueError:
-        continue
-    except KeyboardInterrupt:
-        exit()
+    unblock_ip()
+    time.sleep(10)
