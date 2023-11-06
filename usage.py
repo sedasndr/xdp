@@ -2,14 +2,22 @@ from bcc import BPF
 import time
 import ctypes
 import os
+import sys
+import socket
 
-device = "lo"
-bpf = BPF(src_file="xdp_prog.c")
-fn = b.load_func("xdp_filter_prog", BPF.XDP)
-bpf.attach_xdp(device, fn, 0)
+
+
+interface = "eth0"
+print("binding socket to '%s'" % interface)
+bpf = BPF(src_file="xdp_prog.c", debug=0)
+function_http_filter = bpf.load_func("xdp_filter_prog", BPF.SOCKET_FILTER)
+BPF.attach_raw_socket(function_http_filter, interface)
+socket_fd = function_http_filter.sock
+sock = socket.fromfd(socket_fd, socket.PF_PACKET, socket.SOCK_RAW, socket.IPPROTO_IP)
+sock.setblocking(True)
 # b = BPF(src_file="xdp_prog.c")  # eBPF programını yükle
 # b.attach_xdp("eth0", "xdp_filter_prog")  # Arayüze XDP programını bağla
-#bpf = BPF(src_file="xdp_prog.c")
+# bpf = BPF(src_file="xdp_prog.c")
 
 # BPF map'leri al
 icmp_packets = bpf.get_table("icmp_packets")
