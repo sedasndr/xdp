@@ -1,8 +1,8 @@
 .PHONY: all clean distclean #hedeflerinin dosya adı olmadığını ve make denildiğinde her zaman çalıştırılması gerektiğini belirtir.
 
 LLC = llc #LLVM'nin düşük seviye derleyicisi.
-CC = clang # c derleyicisi
-CXX = clang++ # c++ derleyicisi
+CC = clang 
+CXX = clang++ 
 CLANG = clang 
 CFLAGS := $(CFLAGS) -Wall -Werror -O2 -g #derleyiciye flag tanımlar tüm uyarıları etkinleştirir ve uyarıları hata olarak işler.-02 -g optimizasyon ve hata ayıklama bilgileri ekler.
 
@@ -16,7 +16,7 @@ BPF_CFLAGS := $(BPF_CFLAGS) \
               -Wno-compare-distinct-pointer-types \
               -Werror \
               -MMD -MP
-"2"
+
 BPF_CFLAGS += -I$(LIBBPF_INC_DIR) -I$(CURDIR) #özel derleyici seçenekleri
 
 # BPF_CFLAGS += -D __BPF_TRACING__
