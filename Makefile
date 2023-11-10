@@ -1,8 +1,8 @@
 .PHONY: all clean distclean #hedeflerinin dosya adı olmadığını ve make denildiğinde her zaman çalıştırılması gerektiğini belirtir.
 
 LLC = llc #LLVM'nin düşük seviye derleyicisi.
-CC = clang 
-CXX = clang++ 
+CC = clang # c derleyicisi
+CXX = clang++ # c++ derleyicisi
 CLANG = clang 
 CFLAGS := $(CFLAGS) -Wall -Werror -O2 -g #derleyiciye flag tanımlar tüm uyarıları etkinleştirir ve uyarıları hata olarak işler.-02 -g optimizasyon ve hata ayıklama bilgileri ekler.
 
